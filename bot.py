@@ -57,6 +57,10 @@ async def start_bot():
 @app.on_message(filters.channel)
 async def forward_messages(client, message):
     if message.chat.id in SOURCE_CHANNELS:
+        # Only forward video or document (ignore photo, audio, etc.)
+        if not (message.video or message.document):
+            return
+
         chat_id = str(message.chat.id)
         last_id = get_last_forwarded(chat_id)
 
