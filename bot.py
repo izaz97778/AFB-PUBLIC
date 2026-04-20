@@ -23,7 +23,7 @@ API_ID = int(environ.get("API_ID", ""))
 API_HASH = environ.get("API_HASH", "")
 MONGO_URI = environ.get("MONGO_URI", "")
 
-# Global variables (Initialized empty, filled by load_all_settings)
+# Global variables
 TARGET_CHANNELS = []
 SOURCE_CHANNELS = []
 BATCH_SIZE = DEFAULT_BATCH_SIZE
@@ -38,7 +38,6 @@ config_collection = db["bot_config"]
 # --- MongoDB Helpers ---
 
 def load_all_settings():
-    """Loads all IDs and Batch Size from DB. Falls back to ENV if DB is empty."""
     global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE
     doc = config_collection.find_one({"_id": "settings"})
     
@@ -47,13 +46,11 @@ def load_all_settings():
         TARGET_CHANNELS = doc.get("target_ids", [])
         BATCH_SIZE = doc.get("batch_size", DEFAULT_BATCH_SIZE)
     else:
-        # First time run: Load from ENV and save to DB
         SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
         TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
         save_db_settings()
 
 def save_db_settings():
-    """Syncs the current global lists/vars to MongoDB."""
     config_collection.update_one(
         {"_id": "settings"},
         {"$set": {
@@ -90,14 +87,59 @@ def save_distribution_state(index, count):
 
 # --- Pyrogram client setup ---
 app = Client(
-    name="forwarder_session",
+    name="forwarder",
     session_string=SESSION,
     bot_token=BOT_TOKEN,
     api_id=API_ID,
     api_hash=API_HASH
 )
 
-# --- ADMIN COMMANDS ---
+# --- ADMIN COMMANDS (MULTIPLE ID SUPPORT) ---
+
+@app.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
+async def manage_ids(client, message):
+    global SOURCE_CHANNELS, TARGET_CHANNELS
+    cmd = message.command[0]
+    
+    if len(message.command) < 2:
+        return await message.reply(f"Usage: `/{cmd} ID1 ID2 ID3 ...`")
+
+    input_ids = message.command[1:]
+    success_ids = []
+    failed_ids = []
+
+    for raw_id in input_ids:
+        try:
+            # Clean ID (remove brackets or commas if user pasted incorrectly)
+            clean_id = int(re.sub(r'[\[\],]', '', raw_id))
+            
+            if "add_source" == cmd:
+                if clean_id not in SOURCE_CHANNELS:
+                    SOURCE_CHANNELS.append(clean_id)
+                    success_ids.append(str(clean_id))
+            elif "add_target" == cmd:
+                if clean_id not in TARGET_CHANNELS:
+                    TARGET_CHANNELS.append(clean_id)
+                    success_ids.append(str(clean_id))
+            elif "del_source" == cmd:
+                if clean_id in SOURCE_CHANNELS:
+                    SOURCE_CHANNELS.remove(clean_id)
+                    success_ids.append(str(clean_id))
+            elif "del_target" == cmd:
+                if clean_id in TARGET_CHANNELS:
+                    TARGET_CHANNELS.remove(clean_id)
+                    success_ids.append(str(clean_id))
+        except ValueError:
+            failed_ids.append(raw_id)
+
+    if success_ids or failed_ids:
+        save_db_settings()
+        response = ""
+        if success_ids:
+            response += f"✅ **Processed:** `{', '.join(success_ids)}`\n"
+        if failed_ids:
+            response += f"❌ **Invalid IDs:** `{', '.join(failed_ids)}`"
+        await message.reply(response)
 
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
 async def update_batch(client, message):
@@ -107,61 +149,17 @@ async def update_batch(client, message):
     try:
         BATCH_SIZE = int(message.command[1])
         save_db_settings()
-        await message.reply(f"✅ BATCH_SIZE updated to `{BATCH_SIZE}` and saved to DB.")
+        await message.reply(f"✅ BATCH_SIZE updated to `{BATCH_SIZE}`.")
     except ValueError:
         await message.reply("Invalid number.")
-
-@app.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
-async def manage_ids(client, message):
-    global SOURCE_CHANNELS, TARGET_CHANNELS
-    cmd = message.command[0]
-    if len(message.command) < 2:
-        return await message.reply("Usage: `/command ID`")
-
-    try:
-        new_id = int(message.command[1])
-    except ValueError:
-        return await message.reply("Invalid numeric ID.")
-
-    if cmd == "add_source":
-        if new_id not in SOURCE_CHANNELS:
-            SOURCE_CHANNELS.append(new_id)
-            save_db_settings()
-            await message.reply(f"✅ Added `{new_id}` to Sources & Database.")
-        else:
-            await message.reply("ID already exists.")
-            
-    elif cmd == "add_target":
-        if new_id not in TARGET_CHANNELS:
-            TARGET_CHANNELS.append(new_id)
-            save_db_settings()
-            await message.reply(f"✅ Added `{new_id}` to Targets & Database.")
-        else:
-            await message.reply("ID already exists.")
-
-    elif cmd == "del_source":
-        if new_id in SOURCE_CHANNELS:
-            SOURCE_CHANNELS.remove(new_id)
-            save_db_settings()
-            await message.reply(f"❌ Removed `{new_id}` from DB.")
-        else:
-            await message.reply("ID not found.")
-
-    elif cmd == "del_target":
-        if new_id in TARGET_CHANNELS:
-            TARGET_CHANNELS.remove(new_id)
-            save_db_settings()
-            await message.reply(f"❌ Removed `{new_id}` from DB.")
-        else:
-            await message.reply("ID not found.")
 
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
     status_text = (
-        f"**🤖 Database Synced Status**\n\n"
-        f"📂 **Sources:** `{SOURCE_CHANNELS}`\n"
-        f"🎯 **Targets:** `{TARGET_CHANNELS}`\n"
-        f"📊 **Batch Size:** `{BATCH_SIZE}`"
+        f"**📊 Current Configuration**\n\n"
+        f"📂 **Sources ({len(SOURCE_CHANNELS)}):** `{SOURCE_CHANNELS}`\n"
+        f"🎯 **Targets ({len(TARGET_CHANNELS)}):** `{TARGET_CHANNELS}`\n"
+        f"🔢 **Batch Size:** `{BATCH_SIZE}`"
     )
     await message.reply(status_text)
 
@@ -184,9 +182,7 @@ async def forward_messages(client, message):
 
         current_target_index, message_count = get_distribution_state()
         total_targets = len(TARGET_CHANNELS)
-        
-        if total_targets == 0:
-            return
+        if total_targets == 0: return
 
         target_chat_id = TARGET_CHANNELS[current_target_index % total_targets]
         
@@ -206,16 +202,16 @@ async def forward_messages(client, message):
             except FloodWait as e:
                 await asyncio.sleep(e.value)
             except Exception as e:
-                print(f"❌ Error: {e}")
+                print(f"Error: {e}")
                 break
 
 # --- Start ---
 
 async def main():
-    load_all_settings() # Load EVERYTHING from MongoDB on startup
+    load_all_settings() 
     await app.start()
     me = await app.get_me()
-    print(f"✅ Bot Online: {me.first_name}")
+    print(f"✅ Logged in as: {me.first_name}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
