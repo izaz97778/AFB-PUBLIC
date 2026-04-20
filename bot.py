@@ -5,7 +5,6 @@ from pyrogram.errors import FloodWait
 from pymongo import MongoClient
 import re
 from os import environ
-import asyncio
 
 print("Starting...")
 uvloop.install()
@@ -90,7 +89,8 @@ async def start_bot():
     await asyncio.Event().wait()
 
 # --- MODIFIED: Message Batch Distribution Handler ---
-@app.on_message(filters.channel)
+# Removed 'filters.channel' to allow Groups and Bots
+@app.on_message()
 async def forward_messages(client, message):
     if message.chat.id in SOURCE_CHANNELS:
         # Only forward video or document
@@ -146,7 +146,7 @@ async def forward_messages(client, message):
                 
             except FloodWait as e:
                 print(f"⏳ FloodWait: Waiting {e.value}s for message {message.id} -> {target_chat_id}")
-                await asyncio.sleep(e.V)
+                await asyncio.sleep(e.value) # Fixed typo from e.V to e.value
             except Exception as e:
                 print(f"❌ Error forwarding message {message.id} to {target_chat_id}: {e}")
                 # Don't save state, will retry this message to the same target next time
