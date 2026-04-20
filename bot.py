@@ -10,8 +10,9 @@ print("Starting Bot...")
 uvloop.install()
 
 # --- CONFIGURATION ---
-BATCH_SIZE = 1000
-# IDs of users allowed to use /add and /del commands
+# Default Batch Size if not set
+DEFAULT_BATCH_SIZE = 1000
+# IDs of users allowed to use admin commands
 ADMINS = [int(admin) for admin in environ.get("ADMINS", "").split()]
 # --- END CONFIGURATION ---
 
@@ -24,17 +25,34 @@ API_ID = int(environ.get("API_ID", ""))
 API_HASH = environ.get("API_HASH", "")
 MONGO_URI = environ.get("MONGO_URI", "")
 
-# Global lists to hold IDs (initialized from environment)
+# Global variables
 TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
 SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
+BATCH_SIZE = DEFAULT_BATCH_SIZE
 
 # Setup MongoDB
 mongo = MongoClient(MONGO_URI)
 db = mongo["forwarding_bot"]
 state_collection = db["forward_state"]
 distribution_collection = db["distribution_state"]
+config_collection = db["bot_config"] # New collection for settings
 
 # --- MongoDB Helpers ---
+
+def load_config():
+    """Loads BATCH_SIZE from database or uses default."""
+    global BATCH_SIZE
+    doc = config_collection.find_one({"_id": "settings"})
+    if doc:
+        BATCH_SIZE = doc.get("batch_size", DEFAULT_BATCH_SIZE)
+
+def save_batch_config(new_size):
+    """Saves new BATCH_SIZE to database."""
+    config_collection.update_one(
+        {"_id": "settings"},
+        {"$set": {"batch_size": new_size}},
+        upsert=True
+    )
 
 def get_last_forwarded(chat_id):
     doc = state_collection.find_one({"_id": str(chat_id)})
@@ -61,8 +79,6 @@ def save_distribution_state(index, count):
     )
 
 # --- Pyrogram client setup ---
-# Using both SESSION and BOT_TOKEN allows the bot to act as a Userbot 
-# (to see other bots/private groups) while responding to bot commands.
 app = Client(
     name="forwarder_session",
     session_string=SESSION,
@@ -73,21 +89,33 @@ app = Client(
 
 # --- ADMIN COMMANDS ---
 
+@app.on_message(filters.command("set_batch") & filters.user(ADMINS))
+async def update_batch(client, message):
+    global BATCH_SIZE
+    if len(message.command) < 2:
+        return await message.reply("Usage: `/set_batch 1000`")
+    
+    try:
+        new_size = int(message.command[1])
+        if new_size < 1:
+            return await message.reply("Batch size must be at least 1.")
+        
+        BATCH_SIZE = new_size
+        save_batch_config(new_size)
+        await message.reply(f"✅ BATCH_SIZE updated to `{BATCH_SIZE}`.")
+    except ValueError:
+        await message.reply("Please provide a valid number.")
+
 @app.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
 async def manage_ids(client, message):
     global SOURCE_CHANNELS, TARGET_CHANNELS
     cmd = message.command[0]
     
     if len(message.command) < 2:
-        return await message.reply("Usage: `/command ID` \nExample: `/add_source -1003942849208`")
+        return await message.reply("Usage: `/command ID` \nExample: `/add_source -3942849208`")
 
     try:
-        raw_id = message.command[1]
-        # Auto-prefix for supergroups if user forgets -100
-        if not raw_id.startswith("-") and len(raw_id) > 9:
-            new_id = int(f"-100{raw_id}")
-        else:
-            new_id = int(raw_id)
+        new_id = int(message.command[1])
     except ValueError:
         return await message.reply("Please provide a valid numeric ID.")
 
@@ -133,67 +161,56 @@ async def show_status(client, message):
 
 @app.on_message()
 async def forward_messages(client, message):
-    # Ignore commands from the forwarder logic
     if message.text and message.text.startswith("/"):
         return
 
-    # Check if the message is from an authorized source
     if message.chat.id in SOURCE_CHANNELS:
-        # Filter for Documents and Videos only
         if not (message.video or message.document):
             return
 
         chat_id = str(message.chat.id)
         last_id = get_last_forwarded(chat_id)
 
-        # Basic duplicate check
         if message.id <= last_id:
             return 
 
-        # --- Batch Distribution Calculation ---
         current_target_index, message_count = get_distribution_state()
         total_targets = len(TARGET_CHANNELS)
         
         if total_targets == 0:
-            return # Nowhere to send!
+            return
 
-        # Select the target based on the current index
         target_chat_id = TARGET_CHANNELS[current_target_index % total_targets]
         
-        # Prepare state for the NEXT message
         next_message_count = message_count + 1
         next_target_index = current_target_index
         
+        # Use the dynamic BATCH_SIZE
         if next_message_count >= BATCH_SIZE:
             next_message_count = 0
             next_target_index = (current_target_index + 1) % total_targets
 
-        # Attempt the copy
         while True:
             try:
-                # .copy() sends the file without the "Forwarded from" tag
                 await message.copy(target_chat_id)
-                
-                print(f"✅ Forwarded: {message.id} -> {target_chat_id} ({next_message_count}/{BATCH_SIZE})")
-                
-                # Save progress to Mongo
                 save_last_forwarded(chat_id, message.id)
                 save_distribution_state(next_target_index, next_message_count)
                 break 
                 
             except FloodWait as e:
-                print(f"⏳ Rate limited. Waiting {e.value} seconds...")
                 await asyncio.sleep(e.value)
             except Exception as e:
-                print(f"❌ Error forwarding message {message.id}: {e}")
+                print(f"❌ Error: {e}")
                 break
 
 # --- Execution ---
 
 async def main():
+    load_config() # Initial load from MongoDB
     await app.start()
     me = await app.get_me()
     print(f"✅ Bot is running as {me.first_name}!")
+    print(f"📊 Current Batch Size: {BATCH_SIZE}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
