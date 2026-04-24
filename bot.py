@@ -1,5 +1,6 @@
 import uvloop
 import asyncio
+import io
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
 from pymongo import MongoClient
@@ -27,7 +28,7 @@ MONGO_URI = environ.get("MONGO_URI", "")
 TARGET_CHANNELS = []
 SOURCE_CHANNELS = []
 BATCH_SIZE = DEFAULT_BATCH_SIZE
-CHECK_DUPLICATES = True # NEW: Toggle state
+CHECK_DUPLICATES = True 
 
 # Setup MongoDB
 mongo = MongoClient(MONGO_URI)
@@ -35,8 +36,8 @@ db = mongo["forwarding_bot"]
 state_collection = db["forward_state"]
 distribution_collection = db["distribution_state"]
 config_collection = db["bot_config"] 
-hash_collection = db["processed_hashes"]  # NEW: For duplicate checking
-stats_collection = db["bot_stats"]        # NEW: For tracking total counts
+hash_collection = db["processed_hashes"]
+stats_collection = db["bot_stats"]
 
 # --- MongoDB Helpers ---
 
@@ -48,7 +49,7 @@ def load_all_settings():
         SOURCE_CHANNELS = doc.get("source_ids", [])
         TARGET_CHANNELS = doc.get("target_ids", [])
         BATCH_SIZE = doc.get("batch_size", DEFAULT_BATCH_SIZE)
-        CHECK_DUPLICATES = doc.get("check_duplicates", True) # Load toggle
+        CHECK_DUPLICATES = doc.get("check_duplicates", True)
     else:
         SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
         TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
@@ -61,19 +62,17 @@ def save_db_settings():
             "source_ids": SOURCE_CHANNELS,
             "target_ids": TARGET_CHANNELS,
             "batch_size": BATCH_SIZE,
-            "check_duplicates": CHECK_DUPLICATES # Save toggle
+            "check_duplicates": CHECK_DUPLICATES
         }},
         upsert=True
     )
 
-# NEW: Duplicate Checking Helpers
 def is_duplicate(file_hash):
     return hash_collection.find_one({"_id": file_hash}) is not None
 
 def save_hash(file_hash):
     hash_collection.update_one({"_id": file_hash}, {"$set": {"seen": True}}, upsert=True)
 
-# NEW: Stats Helpers
 def increment_stats():
     stats_collection.update_one({"_id": "total_forwarded"}, {"$inc": {"count": 1}}, upsert=True)
 
@@ -114,7 +113,7 @@ app = Client(
     api_hash=API_HASH
 )
 
-# --- ADMIN COMMANDS (MULTIPLE ID SUPPORT) ---
+# --- ADMIN COMMANDS ---
 
 @app.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
 async def manage_ids(client, message):
@@ -131,7 +130,6 @@ async def manage_ids(client, message):
     for raw_id in input_ids:
         try:
             clean_id = int(re.sub(r'[\[\],]', '', raw_id))
-            
             if "add_source" == cmd:
                 if clean_id not in SOURCE_CHANNELS:
                     SOURCE_CHANNELS.append(clean_id)
@@ -155,9 +153,9 @@ async def manage_ids(client, message):
         save_db_settings()
         response = ""
         if success_ids:
-            response += f"âœ… **Processed:** `{len(success_ids)} IDs`\n"
+            response += f"✅ **Processed:** `{len(success_ids)} IDs`\n"
         if failed_ids:
-            response += f"âŒ **Invalid IDs:** `{len(failed_ids)} entries`"
+            response += f"❌ **Invalid IDs:** `{len(failed_ids)} entries`"
         await message.reply(response)
 
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
@@ -168,18 +166,17 @@ async def update_batch(client, message):
     try:
         BATCH_SIZE = int(message.command[1])
         save_db_settings()
-        await message.reply(f"âœ… BATCH_SIZE updated to `{BATCH_SIZE}`.")
+        await message.reply(f"✅ BATCH_SIZE updated to `{BATCH_SIZE}`.")
     except ValueError:
         await message.reply("Invalid number.")
 
-# NEW: Toggle Duplicate Checking command
 @app.on_message(filters.command("toggle_dup") & filters.user(ADMINS))
 async def toggle_duplicate_cmd(client, message):
     global CHECK_DUPLICATES
     CHECK_DUPLICATES = not CHECK_DUPLICATES
     save_db_settings()
     status = "ENABLED" if CHECK_DUPLICATES else "DISABLED"
-    await message.reply(f"ðŸ”„ Duplicate Checking is now **{status}**.")
+    await message.reply(f"🔄 Duplicate Checking is now **{status}**.")
 
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
@@ -193,34 +190,50 @@ async def show_status(client, message):
     dup_status = "ON" if CHECK_DUPLICATES else "OFF"
 
     status_text = (
-        f"**ðŸ“Š Bot Statistics**\n\n"
-        f"âœ… **Total Forwarded:** `{total_fwd}`\n"
-        f"ðŸ”„ **Rotation:** `{progress}%` complete\n"
-        f"ðŸŽ¯ **Next Target ID:** `{next_target}`\n"
-        f"ðŸ”¢ **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n"
-        f"ðŸ›¡ï¸ **Duplicates Checking:** `{dup_status}`\n\n"
-        f"ðŸ“‚ **Sources:** `{total_sources}` channels\n"
-        f"ðŸ“ **Targets:** `{total_targets}` channels\n\n"
-        f"ðŸ’¡ *To see full lists, use* `/view_ids`"
+        f"**📊 Bot Statistics**\n\n"
+        f"✅ **Total Forwarded:** `{total_fwd}`\n"
+        f"🔄 **Rotation:** `{progress}%` complete\n"
+        f"🎯 **Next Target ID:** `{next_target}`\n"
+        f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n"
+        f"🛡️ **Duplicates Checking:** `{dup_status}`\n\n"
+        f"📂 **Sources:** `{total_sources}` channels\n"
+        f"📍 **Targets:** `{total_targets}` channels\n\n"
+        f"💡 *To see full lists, use* `/view_ids`"
     )
     await message.reply(status_text)
 
 @app.on_message(filters.command("view_ids") & filters.user(ADMINS))
 async def view_ids(client, message):
-    full_text = "**ðŸ“‚ Source IDs:**\n" + ", ".join(map(str, SOURCE_CHANNELS)) + \
-                "\n\n**ðŸ“ Target IDs:**\n" + ", ".join(map(str, TARGET_CHANNELS))
+    source_list = "\n".join(map(str, SOURCE_CHANNELS))
+    target_list = "\n".join(map(str, TARGET_CHANNELS))
     
-    # Split message if it exceeds Telegram's limit (4096 chars)
-    if len(full_text) > 4000:
-        for x in range(0, len(full_text), 4000):
-            await message.reply(full_text[x:x+4000])
-    else:
-        await message.reply(full_text)
+    full_text = (
+        f"📊 BOT ID CONFIGURATION\n"
+        f"========================\n\n"
+        f"📂 SOURCE CHANNELS ({len(SOURCE_CHANNELS)}):\n"
+        f"------------------------\n"
+        f"{source_list}\n\n"
+        f"📍 TARGET CHANNELS ({len(TARGET_CHANNELS)}):\n"
+        f"------------------------\n"
+        f"{target_list}"
+    )
+
+    file_buffer = io.BytesIO(full_text.encode())
+    file_buffer.name = "channel_ids.txt"
+
+    await message.reply_document(
+        document=file_buffer,
+        caption=f"✅ **ID List Exported**\n📂 Sources: `{len(SOURCE_CHANNELS)}` | 📍 Targets: `{len(TARGET_CHANNELS)}`"
+    )
 
 # --- FORWARDER ---
 
 @app.on_message()
 async def forward_messages(client, message):
+    # FIXED: Skip edited messages manually to prevent the KeyError crash
+    if getattr(message, "edit_date", None):
+        return
+
     if message.text and message.text.startswith("/"):
         return
 
@@ -228,12 +241,11 @@ async def forward_messages(client, message):
         if not (message.video or message.document):
             return
 
-        # NEW: Duplicate Hash Checking logic (Respects Toggle)
         media = message.video or message.document
         file_hash = media.file_unique_id
         
         if CHECK_DUPLICATES and is_duplicate(file_hash):
-            return  # Skip quietly
+            return 
 
         chat_id = str(message.chat.id)
         last_id = get_last_forwarded(chat_id)
@@ -259,7 +271,6 @@ async def forward_messages(client, message):
                 await message.copy(target_chat_id)
                 save_last_forwarded(chat_id, message.id)
                 save_distribution_state(next_target_index, next_message_count)
-                # NEW: Save hash (only if check is on) and increment stats on success
                 if CHECK_DUPLICATES:
                     save_hash(file_hash)
                 increment_stats()
@@ -276,7 +287,7 @@ async def main():
     load_all_settings() 
     await app.start()
     me = await app.get_me()
-    print(f"âœ… Logged in as: {me.first_name}")
+    print(f"✅ Logged in as: {me.first_name}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
