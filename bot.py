@@ -155,9 +155,9 @@ async def manage_ids(client, message):
         save_db_settings()
         response = ""
         if success_ids:
-            response += f"✅ **Processed:** `{len(success_ids)} IDs`\n"
+            response += f"âœ… **Processed:** `{len(success_ids)} IDs`\n"
         if failed_ids:
-            response += f"❌ **Invalid IDs:** `{len(failed_ids)} entries`"
+            response += f"âŒ **Invalid IDs:** `{len(failed_ids)} entries`"
         await message.reply(response)
 
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
@@ -168,7 +168,7 @@ async def update_batch(client, message):
     try:
         BATCH_SIZE = int(message.command[1])
         save_db_settings()
-        await message.reply(f"✅ BATCH_SIZE updated to `{BATCH_SIZE}`.")
+        await message.reply(f"âœ… BATCH_SIZE updated to `{BATCH_SIZE}`.")
     except ValueError:
         await message.reply("Invalid number.")
 
@@ -179,7 +179,7 @@ async def toggle_duplicate_cmd(client, message):
     CHECK_DUPLICATES = not CHECK_DUPLICATES
     save_db_settings()
     status = "ENABLED" if CHECK_DUPLICATES else "DISABLED"
-    await message.reply(f"🔄 Duplicate Checking is now **{status}**.")
+    await message.reply(f"ðŸ”„ Duplicate Checking is now **{status}**.")
 
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
@@ -193,22 +193,22 @@ async def show_status(client, message):
     dup_status = "ON" if CHECK_DUPLICATES else "OFF"
 
     status_text = (
-        f"**📊 Bot Statistics**\n\n"
-        f"✅ **Total Forwarded:** `{total_fwd}`\n"
-        f"🔄 **Rotation:** `{progress}%` complete\n"
-        f"🎯 **Next Target ID:** `{next_target}`\n"
-        f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n"
-        f"🛡️ **Duplicates Checking:** `{dup_status}`\n\n"
-        f"📂 **Sources:** `{total_sources}` channels\n"
-        f"📍 **Targets:** `{total_targets}` channels\n\n"
-        f"💡 *To see full lists, use* `/view_ids`"
+        f"**ðŸ“Š Bot Statistics**\n\n"
+        f"âœ… **Total Forwarded:** `{total_fwd}`\n"
+        f"ðŸ”„ **Rotation:** `{progress}%` complete\n"
+        f"ðŸŽ¯ **Next Target ID:** `{next_target}`\n"
+        f"ðŸ”¢ **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n"
+        f"ðŸ›¡ï¸ **Duplicates Checking:** `{dup_status}`\n\n"
+        f"ðŸ“‚ **Sources:** `{total_sources}` channels\n"
+        f"ðŸ“ **Targets:** `{total_targets}` channels\n\n"
+        f"ðŸ’¡ *To see full lists, use* `/view_ids`"
     )
     await message.reply(status_text)
 
 @app.on_message(filters.command("view_ids") & filters.user(ADMINS))
 async def view_ids(client, message):
-    full_text = "**📂 Source IDs:**\n" + ", ".join(map(str, SOURCE_CHANNELS)) + \
-                "\n\n**📍 Target IDs:**\n" + ", ".join(map(str, TARGET_CHANNELS))
+    full_text = "**ðŸ“‚ Source IDs:**\n" + ", ".join(map(str, SOURCE_CHANNELS)) + \
+                "\n\n**ðŸ“ Target IDs:**\n" + ", ".join(map(str, TARGET_CHANNELS))
     
     # Split message if it exceeds Telegram's limit (4096 chars)
     if len(full_text) > 4000:
@@ -221,10 +221,6 @@ async def view_ids(client, message):
 
 @app.on_message()
 async def forward_messages(client, message):
-    # FIXED: Skip edited messages manually to prevent the KeyError crash
-    if getattr(message, "edit_date", None):
-        return
-
     if message.text and message.text.startswith("/"):
         return
 
@@ -280,7 +276,7 @@ async def main():
     load_all_settings() 
     await app.start()
     me = await app.get_me()
-    print(f"✅ Logged in as: {me.first_name}")
+    print(f"âœ… Logged in as: {me.first_name}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
