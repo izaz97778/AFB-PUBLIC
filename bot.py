@@ -152,9 +152,9 @@ async def manage_ids(client, message):
         save_db_settings()
         response = ""
         if success_ids:
-            response += f"✅ **Processed:** `{', '.join(success_ids)}`\n"
+            response += f"✅ **Processed:** {len(success_ids)} IDs\n"
         if failed_ids:
-            response += f"❌ **Invalid IDs:** `{', '.join(failed_ids)}`"
+            response += f"❌ **Invalid IDs:** {len(failed_ids)} entries"
         await message.reply(response)
 
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
@@ -171,12 +171,12 @@ async def update_batch(client, message):
 
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
-    # UPDATED: Added Progress and Stats to status command
+    # FIXED: Only show COUNT to prevent MESSAGE_TOO_LONG crash
     curr_idx, curr_count = get_distribution_state()
     total_targets = len(TARGET_CHANNELS)
+    total_sources = len(SOURCE_CHANNELS)
     total_fwd = get_total_stats()
     
-    # Progress percentage calculation
     progress = 0
     if total_targets > 0:
         progress = round(((curr_idx + (curr_count / BATCH_SIZE)) / total_targets) * 100, 2)
@@ -187,16 +187,16 @@ async def show_status(client, message):
         f"**📊 Bot Statistics & Progress**\n\n"
         f"✅ **Total Files Forwarded:** `{total_fwd}`\n"
         f"🔄 **Rotation Progress:** `{progress}%` complete\n"
-        f"🎯 **Next Target:** `{next_target}`\n"
+        f"🎯 **Next Target ID:** `{next_target}`\n"
         f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n\n"
-        f"📂 **Sources ({len(SOURCE_CHANNELS)}):** `{SOURCE_CHANNELS}`\n"
-        f"📍 **Targets ({total_targets}):** `{TARGET_CHANNELS}`"
+        f"📂 **Sources:** `{total_sources}` channels\n"
+        f"📍 **Targets:** `{total_targets}` channels"
     )
     await message.reply(status_text)
 
 # --- FORWARDER ---
 
-@app.on_message()
+@app.on_message(~filters.edited) # FIXED: Added ~filters.edited to prevent KeyError crash
 async def forward_messages(client, message):
     if message.text and message.text.startswith("/"):
         return
