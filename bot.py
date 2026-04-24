@@ -221,6 +221,10 @@ async def view_ids(client, message):
 
 @app.on_message()
 async def forward_messages(client, message):
+    # FIXED: Skip edited messages manually to prevent the KeyError crash
+    if getattr(message, "edit_date", None):
+        return
+
     if message.text and message.text.startswith("/"):
         return
 
