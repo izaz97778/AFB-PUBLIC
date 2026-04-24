@@ -27,6 +27,7 @@ MONGO_URI = environ.get("MONGO_URI", "")
 TARGET_CHANNELS = []
 SOURCE_CHANNELS = []
 BATCH_SIZE = DEFAULT_BATCH_SIZE
+CHECK_DUPLICATES = True # NEW: Toggle state
 
 # Setup MongoDB
 mongo = MongoClient(MONGO_URI)
@@ -40,13 +41,14 @@ stats_collection = db["bot_stats"]        # NEW: For tracking total counts
 # --- MongoDB Helpers ---
 
 def load_all_settings():
-    global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE
+    global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE, CHECK_DUPLICATES
     doc = config_collection.find_one({"_id": "settings"})
     
     if doc:
         SOURCE_CHANNELS = doc.get("source_ids", [])
         TARGET_CHANNELS = doc.get("target_ids", [])
         BATCH_SIZE = doc.get("batch_size", DEFAULT_BATCH_SIZE)
+        CHECK_DUPLICATES = doc.get("check_duplicates", True) # Load toggle
     else:
         SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
         TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
@@ -58,7 +60,8 @@ def save_db_settings():
         {"$set": {
             "source_ids": SOURCE_CHANNELS,
             "target_ids": TARGET_CHANNELS,
-            "batch_size": BATCH_SIZE
+            "batch_size": BATCH_SIZE,
+            "check_duplicates": CHECK_DUPLICATES # Save toggle
         }},
         upsert=True
     )
@@ -169,6 +172,15 @@ async def update_batch(client, message):
     except ValueError:
         await message.reply("Invalid number.")
 
+# NEW: Toggle Duplicate Checking command
+@app.on_message(filters.command("toggle_dup") & filters.user(ADMINS))
+async def toggle_duplicate_cmd(client, message):
+    global CHECK_DUPLICATES
+    CHECK_DUPLICATES = not CHECK_DUPLICATES
+    save_db_settings()
+    status = "ENABLED" if CHECK_DUPLICATES else "DISABLED"
+    await message.reply(f"🔄 Duplicate Checking is now **{status}**.")
+
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
     curr_idx, curr_count = get_distribution_state()
@@ -178,13 +190,15 @@ async def show_status(client, message):
     
     progress = round(((curr_idx + (curr_count / BATCH_SIZE)) / total_targets) * 100, 2) if total_targets > 0 else 0
     next_target = TARGET_CHANNELS[curr_idx % total_targets] if total_targets > 0 else "N/A"
+    dup_status = "ON" if CHECK_DUPLICATES else "OFF"
 
     status_text = (
         f"**📊 Bot Statistics**\n\n"
         f"✅ **Total Forwarded:** `{total_fwd}`\n"
         f"🔄 **Rotation:** `{progress}%` complete\n"
         f"🎯 **Next Target ID:** `{next_target}`\n"
-        f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n\n"
+        f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n"
+        f"🛡️ **Duplicates Checking:** `{dup_status}`\n\n"
         f"📂 **Sources:** `{total_sources}` channels\n"
         f"📍 **Targets:** `{total_targets}` channels\n\n"
         f"💡 *To see full lists, use* `/view_ids`"
@@ -214,11 +228,11 @@ async def forward_messages(client, message):
         if not (message.video or message.document):
             return
 
-        # NEW: Duplicate Hash Checking logic
+        # NEW: Duplicate Hash Checking logic (Respects Toggle)
         media = message.video or message.document
         file_hash = media.file_unique_id
         
-        if is_duplicate(file_hash):
+        if CHECK_DUPLICATES and is_duplicate(file_hash):
             return  # Skip quietly
 
         chat_id = str(message.chat.id)
@@ -245,8 +259,9 @@ async def forward_messages(client, message):
                 await message.copy(target_chat_id)
                 save_last_forwarded(chat_id, message.id)
                 save_distribution_state(next_target_index, next_message_count)
-                # NEW: Save hash and increment stats on success
-                save_hash(file_hash)
+                # NEW: Save hash (only if check is on) and increment stats on success
+                if CHECK_DUPLICATES:
+                    save_hash(file_hash)
                 increment_stats()
                 break 
             except FloodWait as e:
