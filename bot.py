@@ -15,8 +15,6 @@ ADMINS = [int(admin) for admin in environ.get("ADMINS", "").split()]
 # --- END CONFIGURATION ---
 
 id_pattern = re.compile(r'^.\d+$')
-# NEW: Pattern to detect links
-url_pattern = re.compile(r'https?://\S+')
 
 # Load from environment
 SESSION = environ.get("SESSION", "")
@@ -29,7 +27,6 @@ MONGO_URI = environ.get("MONGO_URI", "")
 TARGET_CHANNELS = []
 SOURCE_CHANNELS = []
 BATCH_SIZE = DEFAULT_BATCH_SIZE
-LINK_TARGET = 0 # NEW: Global for link target
 
 # Setup MongoDB
 mongo = MongoClient(MONGO_URI)
@@ -43,18 +40,16 @@ stats_collection = db["bot_stats"]        # NEW: For tracking total counts
 # --- MongoDB Helpers ---
 
 def load_all_settings():
-    global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE, LINK_TARGET
+    global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE
     doc = config_collection.find_one({"_id": "settings"})
     
     if doc:
         SOURCE_CHANNELS = doc.get("source_ids", [])
         TARGET_CHANNELS = doc.get("target_ids", [])
         BATCH_SIZE = doc.get("batch_size", DEFAULT_BATCH_SIZE)
-        LINK_TARGET = doc.get("link_target", 0) # Load Link Target
     else:
         SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
         TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
-        LINK_TARGET = 0
         save_db_settings()
 
 def save_db_settings():
@@ -63,8 +58,7 @@ def save_db_settings():
         {"$set": {
             "source_ids": SOURCE_CHANNELS,
             "target_ids": TARGET_CHANNELS,
-            "batch_size": BATCH_SIZE,
-            "link_target": LINK_TARGET # Save Link Target
+            "batch_size": BATCH_SIZE
         }},
         upsert=True
     )
@@ -163,19 +157,6 @@ async def manage_ids(client, message):
             response += f"❌ **Invalid IDs:** `{', '.join(failed_ids)}`"
         await message.reply(response)
 
-# NEW: Command to set separate link channel through bot
-@app.on_message(filters.command("set_link") & filters.user(ADMINS))
-async def set_link_channel(client, message):
-    global LINK_TARGET
-    if len(message.command) < 2:
-        return await message.reply("Usage: `/set_link -100123456789` (Set to 0 to disable)")
-    try:
-        LINK_TARGET = int(message.command[1])
-        save_db_settings()
-        await message.reply(f"✅ **Link Target Channel updated to:** `{LINK_TARGET}`")
-    except ValueError:
-        await message.reply("❌ Invalid ID format.")
-
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
 async def update_batch(client, message):
     global BATCH_SIZE
@@ -205,7 +186,6 @@ async def show_status(client, message):
     status_text = (
         f"**📊 Bot Statistics & Progress**\n\n"
         f"✅ **Total Files Forwarded:** `{total_fwd}`\n"
-        f"🔗 **Link Channel:** `{LINK_TARGET if LINK_TARGET != 0 else 'Not Set'}`\n"
         f"🔄 **Rotation Progress:** `{progress}%` complete\n"
         f"🎯 **Next Target:** `{next_target}`\n"
         f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n\n"
@@ -222,16 +202,6 @@ async def forward_messages(client, message):
         return
 
     if message.chat.id in SOURCE_CHANNELS:
-        
-        # NEW: Link Forwarding Logic
-        # Scan for links in text or captions
-        msg_text = message.text or message.caption or ""
-        if url_pattern.search(msg_text) and LINK_TARGET != 0:
-            try:
-                await message.copy(LINK_TARGET)
-            except Exception as e:
-                print(f"Link Forwarding Error: {e}")
-
         if not (message.video or message.document):
             return
 
