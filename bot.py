@@ -196,7 +196,7 @@ async def show_status(client, message):
 
 # --- FORWARDER ---
 
-@app.on_message(~filters.edited) # FIXED: Added ~filters.edited to prevent KeyError crash
+@app.on_message(~filters.edited_message) # FIXED: Added ~filters.edited to prevent KeyError crash
 async def forward_messages(client, message):
     if message.text and message.text.startswith("/"):
         return
