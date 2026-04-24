@@ -152,9 +152,9 @@ async def manage_ids(client, message):
         save_db_settings()
         response = ""
         if success_ids:
-            response += f"✅ **Processed:** {len(success_ids)} IDs\n"
+            response += f"✅ **Processed:** `{len(success_ids)} IDs`\n"
         if failed_ids:
-            response += f"❌ **Invalid IDs:** {len(failed_ids)} entries"
+            response += f"❌ **Invalid IDs:** `{len(failed_ids)} entries`"
         await message.reply(response)
 
 @app.on_message(filters.command("set_batch") & filters.user(ADMINS))
@@ -171,32 +171,41 @@ async def update_batch(client, message):
 
 @app.on_message(filters.command("status") & filters.user(ADMINS))
 async def show_status(client, message):
-    # FIXED: Only show COUNT to prevent MESSAGE_TOO_LONG crash
     curr_idx, curr_count = get_distribution_state()
     total_targets = len(TARGET_CHANNELS)
     total_sources = len(SOURCE_CHANNELS)
     total_fwd = get_total_stats()
     
-    progress = 0
-    if total_targets > 0:
-        progress = round(((curr_idx + (curr_count / BATCH_SIZE)) / total_targets) * 100, 2)
-    
+    progress = round(((curr_idx + (curr_count / BATCH_SIZE)) / total_targets) * 100, 2) if total_targets > 0 else 0
     next_target = TARGET_CHANNELS[curr_idx % total_targets] if total_targets > 0 else "N/A"
 
     status_text = (
-        f"**📊 Bot Statistics & Progress**\n\n"
-        f"✅ **Total Files Forwarded:** `{total_fwd}`\n"
-        f"🔄 **Rotation Progress:** `{progress}%` complete\n"
+        f"**📊 Bot Statistics**\n\n"
+        f"✅ **Total Forwarded:** `{total_fwd}`\n"
+        f"🔄 **Rotation:** `{progress}%` complete\n"
         f"🎯 **Next Target ID:** `{next_target}`\n"
         f"🔢 **Batch Status:** `{curr_count}/{BATCH_SIZE}`\n\n"
         f"📂 **Sources:** `{total_sources}` channels\n"
-        f"📍 **Targets:** `{total_targets}` channels"
+        f"📍 **Targets:** `{total_targets}` channels\n\n"
+        f"💡 *To see full lists, use* `/view_ids`"
     )
     await message.reply(status_text)
 
+@app.on_message(filters.command("view_ids") & filters.user(ADMINS))
+async def view_ids(client, message):
+    full_text = "**📂 Source IDs:**\n" + ", ".join(map(str, SOURCE_CHANNELS)) + \
+                "\n\n**📍 Target IDs:**\n" + ", ".join(map(str, TARGET_CHANNELS))
+    
+    # Split message if it exceeds Telegram's limit (4096 chars)
+    if len(full_text) > 4000:
+        for x in range(0, len(full_text), 4000):
+            await message.reply(full_text[x:x+4000])
+    else:
+        await message.reply(full_text)
+
 # --- FORWARDER ---
 
-@app.on_message(~filters.edited_message) # FIXED: Added ~filters.edited to prevent KeyError crash
+@app.on_message()
 async def forward_messages(client, message):
     if message.text and message.text.startswith("/"):
         return
