@@ -178,7 +178,7 @@ async def toggle_duplicate_cmd(client, message):
     status = "ENABLED" if CHECK_DUPLICATES else "DISABLED"
     await message.reply(f"🔄 Duplicate Checking is now **{status}**.")
 
-@app.on_message(filters.command("status") & filters.user(ADMINS))
+@app.on_message(filters.command("botstatus") & filters.user(ADMINS))
 async def show_status(client, message):
     curr_idx, curr_count = get_distribution_state()
     total_targets = len(TARGET_CHANNELS)
