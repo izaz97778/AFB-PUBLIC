@@ -266,20 +266,39 @@ async def forward_messages(client, message):
             next_message_count = 0
             next_target_index = (current_target_index + 1) % total_targets
 
-        while True:
-            try:
-                await message.copy(target_chat_id)
-                save_last_forwarded(chat_id, message.id)
-                save_distribution_state(next_target_index, next_message_count)
-                if CHECK_DUPLICATES:
-                    save_hash(file_hash)
-                increment_stats()
-                break 
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-            except Exception as e:
-                print(f"Error: {e}")
-                break
+        # Get custom thumbnail if available
+thumb = None
+thumbs = getattr(media, "thumbs", None)
+if thumbs:
+    thumb = await app.download_media(thumbs[0].file_id)
+
+while True:
+    try:
+        if message.video:
+            await app.send_video(
+                chat_id=target_chat_id,
+                video=media.file_id,
+                thumb=thumb,
+                caption=""
+            )
+        elif message.document:
+            await app.send_document(
+                chat_id=target_chat_id,
+                document=media.file_id,
+                thumb=thumb,
+                caption=""
+            )
+        save_last_forwarded(chat_id, message.id)
+        save_distribution_state(next_target_index, next_message_count)
+        if CHECK_DUPLICATES:
+            save_hash(file_hash)
+        increment_stats()
+        break
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+    except Exception as e:
+        print(f"Error: {e}")
+        break
 
 # --- Start ---
 
