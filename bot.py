@@ -305,7 +305,10 @@ async def send_logs(client, message):
     log_file = "bot.log"
     if not os.path.exists(log_file):
         return await message.reply("📭 No log file found yet.")
-    await message.reply_document(log_file, caption="📋 bot.log")
+    with open(log_file, "rb") as f:
+        file_buffer = io.BytesIO(f.read())
+    file_buffer.name = "bot.log"
+    await message.reply_document(document=file_buffer, caption="📋 bot.log")
 
 
 # --- SERVER STATUS ---
@@ -408,6 +411,23 @@ async def update_and_restart(client, message):
 
     await msg.edit(f"{status_line}{pip_note}\n\n♻️ **Restarting bot...**")
     await asyncio.sleep(1)
+
+    me = await app.get_me()
+    startup_text = (
+        f"🤖 **Bot Restarted!**\n\n"
+        f"**Name:** {me.first_name}\n"
+        f"**Username:** @{me.username}\n"
+        f"**Sources:** `{len(SOURCE_CHANNELS)}` channels\n"
+        f"**Targets:** `{len(TARGET_CHANNELS)}` channels\n"
+        f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
+        f"✅ Bot is online and ready!"
+    )
+    for admin in ADMINS:
+        try:
+            await app.send_message(admin, startup_text)
+        except Exception:
+            pass
+
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
