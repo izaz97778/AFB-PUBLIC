@@ -47,6 +47,7 @@ BATCH_SIZE = DEFAULT_BATCH_SIZE
 CHECK_DUPLICATES = True
 LINKS_CHANNEL = None       # Single channel ID/username for links & text
 LINKS_FORWARDING_ENABLED = False  # Master on/off switch
+LINKS_SOURCE_CHANNELS = []  # Separate source channels for links forwarding
 
 # Setup MongoDB
 mongo = MongoClient(MONGO_URI)
@@ -61,7 +62,7 @@ stats_collection = db["bot_stats"]
 
 def load_all_settings():
     global SOURCE_CHANNELS, TARGET_CHANNELS, BATCH_SIZE, CHECK_DUPLICATES
-    global LINKS_CHANNEL, LINKS_FORWARDING_ENABLED
+    global LINKS_CHANNEL, LINKS_FORWARDING_ENABLED, LINKS_SOURCE_CHANNELS
     doc = config_collection.find_one({"_id": "settings"})
     
     if doc:
@@ -71,6 +72,7 @@ def load_all_settings():
         CHECK_DUPLICATES = doc.get("check_duplicates", True)
         LINKS_CHANNEL = doc.get("links_channel", None)
         LINKS_FORWARDING_ENABLED = doc.get("links_forwarding_enabled", False)
+        LINKS_SOURCE_CHANNELS = doc.get("links_source_ids", [])
     else:
         SOURCE_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("SOURCE_CHANNELS", "").split()]
         TARGET_CHANNELS = [int(ch) if id_pattern.search(ch) else ch for ch in environ.get("TARGET_CHANNELS", "").split()]
@@ -85,7 +87,8 @@ def save_db_settings():
             "batch_size": BATCH_SIZE,
             "check_duplicates": CHECK_DUPLICATES,
             "links_channel": LINKS_CHANNEL,
-            "links_forwarding_enabled": LINKS_FORWARDING_ENABLED
+            "links_forwarding_enabled": LINKS_FORWARDING_ENABLED,
+            "links_source_ids": LINKS_SOURCE_CHANNELS
         }},
         upsert=True
     )
@@ -239,6 +242,37 @@ async def toggle_links_cmd(client, message):
     status = "ENABLED ✅" if LINKS_FORWARDING_ENABLED else "DISABLED ❌"
     await message.reply(f"🔗 Links & text forwarding is now **{status}**.")
 
+@app.on_message(filters.command(["add_links_source", "del_links_source"]) & filters.user(ADMINS))
+async def manage_links_sources(client, message):
+    global LINKS_SOURCE_CHANNELS
+    cmd = message.command[0]
+    if len(message.command) < 2:
+        return await message.reply(f"Usage: `/{cmd} ID1 ID2 ...`")
+
+    added, removed, invalid = [], [], []
+    for raw in message.command[1:]:
+        raw = re.sub(r'[\[\],]', '', raw)
+        try:
+            ch_id = int(raw)
+        except ValueError:
+            invalid.append(raw)
+            continue
+        if cmd == "add_links_source":
+            if ch_id not in LINKS_SOURCE_CHANNELS:
+                LINKS_SOURCE_CHANNELS.append(ch_id)
+                added.append(ch_id)
+        else:
+            if ch_id in LINKS_SOURCE_CHANNELS:
+                LINKS_SOURCE_CHANNELS.remove(ch_id)
+                removed.append(ch_id)
+
+    save_db_settings()
+    lines = []
+    if added:   lines.append(f"✅ Added: {added}")
+    if removed: lines.append(f"🗑️ Removed: {removed}")
+    if invalid: lines.append(f"⚠️ Invalid: {invalid}")
+    await message.reply("\n".join(lines) or "Nothing changed.")
+
 @app.on_message(filters.command("botstatus") & filters.user(ADMINS))
 async def show_status(client, message):
     curr_idx, curr_count = get_distribution_state()
@@ -272,6 +306,7 @@ async def show_status(client, message):
 async def view_ids(client, message):
     source_list = "\n".join(map(str, SOURCE_CHANNELS)) or "(none)"
     target_list = "\n".join(map(str, TARGET_CHANNELS)) or "(none)"
+    links_src_list = "\n".join(map(str, LINKS_SOURCE_CHANNELS)) or "(none)"
     links_ch_str = str(LINKS_CHANNEL) if LINKS_CHANNEL else "(not set)"
     links_enabled_str = "ON" if LINKS_FORWARDING_ENABLED else "OFF"
     
@@ -287,7 +322,10 @@ async def view_ids(client, message):
         f"🔗 LINKS CHANNEL:\n"
         f"------------------------\n"
         f"{links_ch_str}\n"
-        f"Status: {links_enabled_str}"
+        f"Status: {links_enabled_str}\n\n"
+        f"📡 LINKS SOURCE CHANNELS ({len(LINKS_SOURCE_CHANNELS)}):\n"
+        f"------------------------\n"
+        f"{links_src_list}"
     )
 
     file_buffer = io.BytesIO(full_text.encode())
@@ -449,20 +487,21 @@ async def forward_messages(client, message):
 
     # ── LINKS / TEXT FORWARDING ──────────────────────────────────────────
     if LINKS_FORWARDING_ENABLED and LINKS_CHANNEL:
-        content = message.text or ""
-        has_media = bool(message.video or message.document or message.photo
-                         or message.audio or message.voice or message.sticker)
-        if content and not has_media and quality_pattern.search(content):
-            # Forward any text/caption that has content (links or plain text)
-            while True:
-                try:
-                    await message.copy(LINKS_CHANNEL)
-                    break
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                except Exception as e:
-                    print(f"[Links] Error forwarding to links channel: {e}")
-                    break
+        active_links_sources = LINKS_SOURCE_CHANNELS if LINKS_SOURCE_CHANNELS else SOURCE_CHANNELS
+        if message.chat.id in active_links_sources:
+            content = message.text or ""
+            has_media = bool(message.video or message.document or message.photo
+                             or message.audio or message.voice or message.sticker)
+            if content and not has_media and quality_pattern.search(content):
+                while True:
+                    try:
+                        await message.copy(LINKS_CHANNEL)
+                        break
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value)
+                    except Exception as e:
+                        print(f"[Links] Error forwarding to links channel: {e}")
+                        break
 
     # ── VIDEO / DOCUMENT FORWARDING ──────────────────────────────────────
     if not (message.video or message.document):
