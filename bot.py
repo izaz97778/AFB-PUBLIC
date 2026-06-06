@@ -422,11 +422,13 @@ async def update_and_restart(client, message):
         f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
         f"✅ Bot is online and ready!"
     )
-    for admin in ADMINS:
-        try:
-            await app.send_message(admin, startup_text)
-        except Exception:
-            pass
+    bot = Client("notify_bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+    async with bot:
+        for admin in ADMINS:
+            try:
+                await bot.send_message(admin, startup_text)
+            except Exception:
+                pass
 
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -523,11 +525,15 @@ async def main():
         f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
         f"✅ Bot is online and ready!"
     )
-    for admin in ADMINS:
-        try:
-            await app.send_message(admin, startup_text)
-        except Exception:
-            pass
+
+    # Use bot-only client so message arrives in bot chat, not Saved Messages
+    bot = Client("notify_bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+    async with bot:
+        for admin in ADMINS:
+            try:
+                await bot.send_message(admin, startup_text)
+            except Exception:
+                pass
 
     await asyncio.Event().wait()
 
