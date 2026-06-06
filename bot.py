@@ -346,37 +346,43 @@ async def server_status(client, message):
 
 @app.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_and_restart(client, message):
+    """
+    Pull latest code from git and restart the bot process.
+    Works in any environment where the bot runs from a git repo.
+    Set GIT_REPO env var to override the repo URL for a fresh re-clone.
+    """
     msg = await message.reply("🔄 **Pulling latest code from git...**")
 
+    # Step 1: git pull
     try:
-        # Step 1: fetch latest from origin
-        subprocess.run(["git", "fetch", "origin", "main"],
-                       capture_output=True, text=True, timeout=60, check=True)
-
-        # Step 2: hard reset to origin/main — works even on detached HEAD
-        reset_result = subprocess.run(
-            ["git", "reset", "--hard", "origin/main"],
-            capture_output=True, text=True, timeout=60
+        pull_result = subprocess.run(
+            ["git", "pull"],
+            capture_output=True,
+            text=True,
+            timeout=60
         )
-        pull_output = reset_result.stdout.strip() or reset_result.stderr.strip()
+        pull_output = pull_result.stdout.strip() or pull_result.stderr.strip()
     except FileNotFoundError:
-        return await msg.edit("❌ `git` not found in the container.")
+        return await msg.edit("❌ `git` not found. Make sure git is installed in the container.")
     except subprocess.TimeoutExpired:
-        return await msg.edit("❌ git fetch timed out after 60s.")
-    except subprocess.CalledProcessError as e:
-        return await msg.edit(f"❌ git fetch failed:\n`{e.stderr.strip()}`")
+        return await msg.edit("❌ `git pull` timed out after 60s.")
     except Exception as e:
-        return await msg.edit(f"❌ Update failed:\n`{e}`")
+        return await msg.edit(f"❌ git pull failed:\n`{e}`")
 
-    if reset_result.returncode != 0:
-        return await msg.edit(f"❌ **git reset failed:**\n```\n{pull_output}\n```")
+    if pull_result.returncode != 0:
+        return await msg.edit(
+            f"❌ **git pull failed:**\n```\n{pull_output}\n```"
+        )
 
     already_up = "already up to date" in pull_output.lower()
     status_line = "✅ Already up to date." if already_up else f"✅ Updated:\n```\n{pull_output}\n```"
 
-    # Step 3: reinstall deps if requirements.txt changed
+    # Step 2: install any new dependencies if requirements.txt changed
     pip_note = ""
-    if not already_up and "requirements.txt" in pull_output:
+    req_changed = not already_up and (
+        "requirements.txt" in pull_output or "requirements" in pull_output
+    )
+    if req_changed:
         try:
             pip_result = subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"],
@@ -387,9 +393,12 @@ async def update_and_restart(client, message):
         except Exception as e:
             pip_note = f"\n⚠️ pip install error: `{e}`"
 
-    await msg.edit(f"{status_line}{pip_note}\n\n♻️ **Restarting bot...**")
+    await msg.edit(
+        f"{status_line}{pip_note}\n\n♻️ **Restarting bot...**"
+    )
     await asyncio.sleep(1)
 
+    # Step 3: replace current process — clean restart, keeps env vars
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -408,12 +417,12 @@ async def forward_messages(client, message):
         return
 
     # ── LINKS / TEXT FORWARDING ──────────────────────────────────────────
-    # Runs independently from video forwarding. Handles text messages and
-    # captions that contain URLs. Media-only (no text) messages are skipped.
+    # Only forwards pure text messages — skips any message with media/document
     if LINKS_FORWARDING_ENABLED and LINKS_CHANNEL:
-        content = message.text or message.caption or ""
-        if content and (url_pattern.search(content) or message.text):
-            # Forward any text/caption that has content (links or plain text)
+        content = message.text or ""
+        has_media = bool(message.video or message.document or message.photo
+                         or message.audio or message.voice or message.sticker)
+        if content and not has_media and quality_pattern.search(content):
             while True:
                 try:
                     await message.copy(LINKS_CHANNEL)
