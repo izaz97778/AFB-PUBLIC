@@ -21,6 +21,7 @@ ADMINS = [int(admin) for admin in environ.get("ADMINS", "").split()]
 
 id_pattern = re.compile(r'^.\d+$')
 url_pattern = re.compile(r'(https?://\S+|www\.\S+)', re.IGNORECASE)
+quality_pattern = re.compile(r'\b(480p|720p|1080p|2160p|4k)\b', re.IGNORECASE)
 
 # Load from environment
 SESSION = environ.get("SESSION", "")
@@ -417,12 +418,10 @@ async def forward_messages(client, message):
         return
 
     # ── LINKS / TEXT FORWARDING ──────────────────────────────────────────
-    # Runs independently from video forwarding. Handles text messages and
-    # captions that contain URLs. Media-only (no text) messages are skipped.
+    # Forwards if content has a URL or quality keyword (480p/720p/1080p/2160p/4k)
     if LINKS_FORWARDING_ENABLED and LINKS_CHANNEL:
         content = message.text or message.caption or ""
-        if content and (url_pattern.search(content) or message.text):
-            # Forward any text/caption that has content (links or plain text)
+        if content and (url_pattern.search(content) or quality_pattern.search(content)):
             while True:
                 try:
                     await message.copy(LINKS_CHANNEL)
