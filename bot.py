@@ -135,6 +135,12 @@ def save_distribution_state(index, count):
 app = Client(
     name="forwarder",
     session_string=SESSION,
+    api_id=API_ID,
+    api_hash=API_HASH
+)
+
+bot = Client(
+    name="bot_commands",
     bot_token=BOT_TOKEN,
     api_id=API_ID,
     api_hash=API_HASH
@@ -158,14 +164,14 @@ def main_menu():
 def back_btn():
     return InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="menu_main")]])
 
-@app.on_message(filters.command("start") & filters.user(ADMINS))
+@bot.on_message(filters.command("start") & filters.user(ADMINS))
 async def start_cmd(client, message):
     await message.reply(
         "👋 **AFB Forward Bot**\nChoose an option:",
         reply_markup=main_menu()
     )
 
-@app.on_callback_query(filters.user(ADMINS))
+@bot.on_callback_query(filters.user(ADMINS))
 async def callback_handler(client, query):
     data = query.data
 
@@ -289,7 +295,7 @@ async def callback_handler(client, query):
 
 # --- ADMIN COMMANDS ---
 
-@app.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
+@bot.on_message(filters.command(["add_source", "add_target", "del_source", "del_target"]) & filters.user(ADMINS))
 async def manage_ids(client, message):
     global SOURCE_CHANNELS, TARGET_CHANNELS
     cmd = message.command[0]
@@ -332,7 +338,7 @@ async def manage_ids(client, message):
             response += f"❌ **Invalid IDs:** `{len(failed_ids)} entries`"
         await message.reply(response)
 
-@app.on_message(filters.command("set_batch") & filters.user(ADMINS))
+@bot.on_message(filters.command("set_batch") & filters.user(ADMINS))
 async def update_batch(client, message):
     global BATCH_SIZE
     if len(message.command) < 2:
@@ -344,7 +350,7 @@ async def update_batch(client, message):
     except ValueError:
         await message.reply("Invalid number.")
 
-@app.on_message(filters.command("toggle_dup") & filters.user(ADMINS))
+@bot.on_message(filters.command("toggle_dup") & filters.user(ADMINS))
 async def toggle_duplicate_cmd(client, message):
     global CHECK_DUPLICATES
     CHECK_DUPLICATES = not CHECK_DUPLICATES
@@ -354,7 +360,7 @@ async def toggle_duplicate_cmd(client, message):
 
 # --- LINKS CHANNEL COMMANDS ---
 
-@app.on_message(filters.command("set_links_channel") & filters.user(ADMINS))
+@bot.on_message(filters.command("set_links_channel") & filters.user(ADMINS))
 async def set_links_channel_cmd(client, message):
     global LINKS_CHANNEL
     if len(message.command) < 2:
@@ -370,7 +376,7 @@ async def set_links_channel_cmd(client, message):
     save_db_settings()
     await message.reply(f"✅ Links channel set to `{LINKS_CHANNEL}`.")
 
-@app.on_message(filters.command("del_links_channel") & filters.user(ADMINS))
+@bot.on_message(filters.command("del_links_channel") & filters.user(ADMINS))
 async def del_links_channel_cmd(client, message):
     global LINKS_CHANNEL, LINKS_FORWARDING_ENABLED
     LINKS_CHANNEL = None
@@ -378,7 +384,7 @@ async def del_links_channel_cmd(client, message):
     save_db_settings()
     await message.reply("🗑️ Links channel removed. Links forwarding disabled.")
 
-@app.on_message(filters.command("toggle_links") & filters.user(ADMINS))
+@bot.on_message(filters.command("toggle_links") & filters.user(ADMINS))
 async def toggle_links_cmd(client, message):
     global LINKS_FORWARDING_ENABLED
     if not LINKS_CHANNEL:
@@ -390,7 +396,7 @@ async def toggle_links_cmd(client, message):
     status = "ENABLED ✅" if LINKS_FORWARDING_ENABLED else "DISABLED ❌"
     await message.reply(f"🔗 Links & text forwarding is now **{status}**.")
 
-@app.on_message(filters.command(["add_links_source", "del_links_source"]) & filters.user(ADMINS))
+@bot.on_message(filters.command(["add_links_source", "del_links_source"]) & filters.user(ADMINS))
 async def manage_links_sources(client, message):
     global LINKS_SOURCE_CHANNELS
     cmd = message.command[0]
@@ -421,7 +427,7 @@ async def manage_links_sources(client, message):
     if invalid: lines.append(f"⚠️ Invalid: {invalid}")
     await message.reply("\n".join(lines) or "Nothing changed.")
 
-@app.on_message(filters.command("botstatus") & filters.user(ADMINS))
+@bot.on_message(filters.command("botstatus") & filters.user(ADMINS))
 async def show_status(client, message):
     curr_idx, curr_count = get_distribution_state()
     total_targets = len(TARGET_CHANNELS)
@@ -450,7 +456,7 @@ async def show_status(client, message):
     )
     await message.reply(status_text)
 
-@app.on_message(filters.command("view_ids") & filters.user(ADMINS))
+@bot.on_message(filters.command("view_ids") & filters.user(ADMINS))
 async def view_ids(client, message):
     source_list = "\n".join(map(str, SOURCE_CHANNELS)) or "(none)"
     target_list = "\n".join(map(str, TARGET_CHANNELS)) or "(none)"
@@ -486,7 +492,7 @@ async def view_ids(client, message):
 
 # --- LOGS ---
 
-@app.on_message(filters.command("logs") & filters.user(ADMINS))
+@bot.on_message(filters.command("logs") & filters.user(ADMINS))
 async def send_logs(client, message):
     log_file = "bot.txt"
     if not os.path.exists(log_file):
@@ -499,7 +505,7 @@ async def send_logs(client, message):
 
 # --- SERVER STATUS ---
 
-@app.on_message(filters.command("serverstatus") & filters.user(ADMINS))
+@bot.on_message(filters.command("serverstatus") & filters.user(ADMINS))
 async def server_status(client, message):
     # CPU
     cpu_percent = psutil.cpu_percent(interval=1)
@@ -554,7 +560,7 @@ async def server_status(client, message):
 
 # --- UPDATE & RESTART ---
 
-@app.on_message(filters.command("update") & filters.user(ADMINS))
+@bot.on_message(filters.command("update") & filters.user(ADMINS))
 async def update_and_restart(client, message):
     msg = await message.reply("🔄 **Pulling latest code from git...**")
 
@@ -608,13 +614,11 @@ async def update_and_restart(client, message):
         f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
         f"✅ Bot is online and ready!"
     )
-    bot = Client("notify_bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
-    async with bot:
-        for admin in ADMINS:
-            try:
-                await bot.send_message(admin, startup_text)
-            except Exception:
-                pass
+    for admin in ADMINS:
+        try:
+            await bot.send_message(admin, startup_text)
+        except Exception:
+            pass
 
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
@@ -700,7 +704,8 @@ async def forward_messages(client, message):
 async def main():
     load_all_settings() 
     await app.start()
-    me = await app.get_me()
+    await bot.start()
+    me = await bot.get_me()
     print(f"✅ Logged in as: {me.first_name}")
 
     startup_text = (
@@ -712,15 +717,11 @@ async def main():
         f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
         f"✅ Bot is online and ready!"
     )
-
-    # Use bot-only client so message arrives in bot chat, not Saved Messages
-    bot = Client("notify_bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
-    async with bot:
-        for admin in ADMINS:
-            try:
-                await bot.send_message(admin, startup_text)
-            except Exception:
-                pass
+    for admin in ADMINS:
+        try:
+            await bot.send_message(admin, startup_text)
+        except Exception:
+            pass
 
     await asyncio.Event().wait()
 
