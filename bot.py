@@ -17,7 +17,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("bot.log"),
+        logging.FileHandler("bot.txt"),
         logging.StreamHandler()
     ]
 )
@@ -302,13 +302,13 @@ async def view_ids(client, message):
 
 @app.on_message(filters.command("logs") & filters.user(ADMINS))
 async def send_logs(client, message):
-    log_file = "bot.log"
+    log_file = "bot.txt"
     if not os.path.exists(log_file):
         return await message.reply("📭 No log file found yet.")
     with open(log_file, "rb") as f:
         file_buffer = io.BytesIO(f.read())
-    file_buffer.name = "bot.log"
-    await message.reply_document(document=file_buffer, caption="📋 bot.log")
+    file_buffer.name = "bot.txt"
+    await message.reply_document(document=file_buffer, caption="📋 bot.txt")
 
 
 # --- SERVER STATUS ---
