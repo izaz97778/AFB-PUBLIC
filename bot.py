@@ -9,6 +9,7 @@ import logging
 import psutil
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
 import re
 from os import environ
@@ -138,6 +139,153 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH
 )
+
+# --- START / MENU ---
+
+def main_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📂 Sources", callback_data="menu_sources"),
+         InlineKeyboardButton("📍 Targets", callback_data="menu_targets")],
+        [InlineKeyboardButton("🔗 Links", callback_data="menu_links"),
+         InlineKeyboardButton("⚙️ Settings", callback_data="menu_settings")],
+        [InlineKeyboardButton("📊 Bot Status", callback_data="cmd_botstatus"),
+         InlineKeyboardButton("🖥️ Server Status", callback_data="cmd_serverstatus")],
+        [InlineKeyboardButton("📋 View IDs", callback_data="cmd_view_ids"),
+         InlineKeyboardButton("📄 Logs", callback_data="cmd_logs")],
+        [InlineKeyboardButton("♻️ Update & Restart", callback_data="cmd_update")],
+    ])
+
+def back_btn():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="menu_main")]])
+
+@app.on_message(filters.command("start") & filters.user(ADMINS))
+async def start_cmd(client, message):
+    await message.reply(
+        "👋 **AFB Forward Bot**\nChoose an option:",
+        reply_markup=main_menu()
+    )
+
+@app.on_callback_query(filters.user(ADMINS))
+async def callback_handler(client, query):
+    data = query.data
+
+    # --- MAIN MENU ---
+    if data == "menu_main":
+        await query.edit_message_text("👋 **AFB Forward Bot**\nChoose an option:", reply_markup=main_menu())
+
+    # --- SOURCES MENU ---
+    elif data == "menu_sources":
+        src_list = "\n".join(map(str, SOURCE_CHANNELS)) or "(none)"
+        await query.edit_message_text(
+            f"📂 **Source Channels** ({len(SOURCE_CHANNELS)}):\n`{src_list}`\n\n"
+            f"Use commands:\n`/add_source ID1 ID2`\n`/del_source ID1 ID2`",
+            reply_markup=back_btn()
+        )
+
+    # --- TARGETS MENU ---
+    elif data == "menu_targets":
+        tgt_list = "\n".join(map(str, TARGET_CHANNELS)) or "(none)"
+        await query.edit_message_text(
+            f"📍 **Target Channels** ({len(TARGET_CHANNELS)}):\n`{tgt_list}`\n\n"
+            f"Use commands:\n`/add_target ID1 ID2`\n`/del_target ID1 ID2`",
+            reply_markup=back_btn()
+        )
+
+    # --- LINKS MENU ---
+    elif data == "menu_links":
+        lch = str(LINKS_CHANNEL) if LINKS_CHANNEL else "(not set)"
+        lstatus = "ON ✅" if LINKS_FORWARDING_ENABLED else "OFF ❌"
+        lsrc = "\n".join(map(str, LINKS_SOURCE_CHANNELS)) or "(using main sources)"
+        await query.edit_message_text(
+            f"🔗 **Links Forwarding**\n\n"
+            f"Status: **{lstatus}**\n"
+            f"Channel: `{lch}`\n"
+            f"Sources: `{lsrc}`",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔗 Set Links Channel", callback_data="ask_set_links_channel"),
+                 InlineKeyboardButton("🗑️ Remove", callback_data="cmd_del_links_channel")],
+                [InlineKeyboardButton("➕ Add Links Source", callback_data="ask_add_links_source"),
+                 InlineKeyboardButton("➖ Del Links Source", callback_data="ask_del_links_source")],
+                [InlineKeyboardButton("🔁 Toggle Links", callback_data="cmd_toggle_links")],
+                [InlineKeyboardButton("« Back", callback_data="menu_main")],
+            ])
+        )
+
+    # --- SETTINGS MENU ---
+    elif data == "menu_settings":
+        dup = "ON ✅" if CHECK_DUPLICATES else "OFF ❌"
+        await query.edit_message_text(
+            f"⚙️ **Settings**\n\n"
+            f"Batch Size: `{BATCH_SIZE}`\n"
+            f"Duplicate Check: **{dup}**",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📦 Set Batch Size", callback_data="ask_set_batch")],
+                [InlineKeyboardButton("🔁 Toggle Duplicates", callback_data="cmd_toggle_dup")],
+                [InlineKeyboardButton("« Back", callback_data="menu_main")],
+            ])
+        )
+
+    # --- DIRECT COMMAND CALLBACKS ---
+    elif data == "cmd_botstatus":
+        await query.answer("Loading...")
+        await client.send_message(query.from_user.id, "/botstatus")
+
+    elif data == "cmd_serverstatus":
+        await query.answer("Loading...")
+        await client.send_message(query.from_user.id, "/serverstatus")
+
+    elif data == "cmd_view_ids":
+        await query.answer("Exporting...")
+        await client.send_message(query.from_user.id, "/view_ids")
+
+    elif data == "cmd_logs":
+        await query.answer("Fetching logs...")
+        await client.send_message(query.from_user.id, "/logs")
+
+    elif data == "cmd_update":
+        await query.answer("Starting update...")
+        await client.send_message(query.from_user.id, "/update")
+
+    elif data == "cmd_toggle_links":
+        await query.answer()
+        await client.send_message(query.from_user.id, "/toggle_links")
+
+    elif data == "cmd_toggle_dup":
+        await query.answer()
+        await client.send_message(query.from_user.id, "/toggle_dup")
+
+    elif data == "cmd_del_links_channel":
+        await query.answer()
+        await client.send_message(query.from_user.id, "/del_links_channel")
+
+    # --- ASK FOR INPUT ---
+    elif data == "ask_set_links_channel":
+        await query.edit_message_text(
+            "Send the links channel ID:\n`/set_links_channel -100XXXXXXXXX`",
+            reply_markup=back_btn()
+        )
+
+    elif data == "ask_set_batch":
+        await query.edit_message_text(
+            "Send the batch size:\n`/set_batch 500`",
+            reply_markup=back_btn()
+        )
+
+    elif data == "ask_add_links_source":
+        await query.edit_message_text(
+            "Send source channel IDs:\n`/add_links_source -100XXX -100YYY`",
+            reply_markup=back_btn()
+        )
+
+    elif data == "ask_del_links_source":
+        await query.edit_message_text(
+            "Send source channel IDs to remove:\n`/del_links_source -100XXX`",
+            reply_markup=back_btn()
+        )
+
+    else:
+        await query.answer("Unknown action.")
+
 
 # --- ADMIN COMMANDS ---
 
@@ -489,10 +637,10 @@ async def forward_messages(client, message):
     if LINKS_FORWARDING_ENABLED and LINKS_CHANNEL:
         active_links_sources = LINKS_SOURCE_CHANNELS if LINKS_SOURCE_CHANNELS else SOURCE_CHANNELS
         if message.chat.id in active_links_sources:
-            content = message.text or ""
-            has_media = bool(message.video or message.document or message.photo
-                             or message.audio or message.voice or message.sticker)
-            if content and not has_media and quality_pattern.search(content):
+            content = message.text or message.caption or ""
+            is_text = bool(message.text and not message.photo)
+            is_photo = bool(message.photo)
+            if (is_text or is_photo) and quality_pattern.search(content):
                 while True:
                     try:
                         await message.copy(LINKS_CHANNEL)
