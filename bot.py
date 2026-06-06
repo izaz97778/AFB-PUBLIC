@@ -493,6 +493,22 @@ async def main():
     await app.start()
     me = await app.get_me()
     print(f"✅ Logged in as: {me.first_name}")
+
+    startup_text = (
+        f"🤖 **Bot Started!**\n\n"
+        f"**Name:** {me.first_name}\n"
+        f"**Username:** @{me.username}\n"
+        f"**Sources:** `{len(SOURCE_CHANNELS)}` channels\n"
+        f"**Targets:** `{len(TARGET_CHANNELS)}` channels\n"
+        f"**Links Channel:** `{'Set ✅' if LINKS_CHANNEL else 'Not Set ❌'}`\n\n"
+        f"✅ Bot is online and ready!"
+    )
+    for admin in ADMINS:
+        try:
+            await app.send_message(admin, startup_text)
+        except Exception:
+            pass
+
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
