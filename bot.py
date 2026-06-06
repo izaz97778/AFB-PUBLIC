@@ -5,12 +5,22 @@ import subprocess
 import sys
 import os
 import time
+import logging
 import psutil
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
 from pymongo import MongoClient
 import re
 from os import environ
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
+)
 
 print("Starting Bot...")
 uvloop.install()
@@ -287,6 +297,16 @@ async def view_ids(client, message):
         document=file_buffer,
         caption=f"✅ **ID List Exported**\n📂 Sources: `{len(SOURCE_CHANNELS)}` | 📍 Targets: `{len(TARGET_CHANNELS)}`"
     )
+
+# --- LOGS ---
+
+@app.on_message(filters.command("logs") & filters.user(ADMINS))
+async def send_logs(client, message):
+    log_file = "bot.log"
+    if not os.path.exists(log_file):
+        return await message.reply("📭 No log file found yet.")
+    await message.reply_document(log_file, caption="📋 bot.log")
+
 
 # --- SERVER STATUS ---
 
