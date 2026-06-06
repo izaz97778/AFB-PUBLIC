@@ -3,6 +3,7 @@ import asyncio
 import io
 import subprocess
 import sys
+import os
 import time
 import psutil
 from pyrogram import Client, filters
@@ -417,12 +418,12 @@ async def forward_messages(client, message):
         return
 
     # ── LINKS / TEXT FORWARDING ──────────────────────────────────────────
-    # Only forwards pure text messages — skips any message with media/document
+    # Runs independently from video forwarding. Handles text messages and
+    # captions that contain URLs. Media-only (no text) messages are skipped.
     if LINKS_FORWARDING_ENABLED and LINKS_CHANNEL:
-        content = message.text or ""
-        has_media = bool(message.video or message.document or message.photo
-                         or message.audio or message.voice or message.sticker)
-        if content and not has_media and quality_pattern.search(content):
+        content = message.text or message.caption or ""
+        if content and (url_pattern.search(content) or message.text):
+            # Forward any text/caption that has content (links or plain text)
             while True:
                 try:
                     await message.copy(LINKS_CHANNEL)
